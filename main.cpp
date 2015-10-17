@@ -387,8 +387,13 @@ int w1_search(int fd, w1_search_s *s)
     {
         // successful search
         s->start_search_from = last_zero;
-
-        return 1;
+        if (last_zero == -1)
+        {
+            qDebug() << "found last device on bus";
+            return 2;
+        } else {
+            return 1;
+        }
     }
 
     return 0;
