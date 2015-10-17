@@ -42,6 +42,21 @@
 
 #define DS2482_IDLE_TIMEOUT 100
 
+QString ds2482_sts_reg_to_string(int reg)
+{
+    QStringList bits;
+
+    if (reg & DS2482_STS_1WB_MASK) { bits << "1WB"; }
+    if (reg & DS2482_STS_PPD_MASK) { bits << "PPD"; }
+    if (reg & DS2482_STS_SD_MASK) { bits << "SD"; }
+    if (reg & DS2482_STS_LL_MASK) { bits << "LL"; }
+    if (reg & DS2482_STS_RST_MASK) { bits << "RST"; }
+    if (reg & DS2482_STS_SBR_MASK) { bits << "SBR"; }
+    if (reg & DS2482_STS_TSB_MASK) { bits << "TSB"; }
+    if (reg & DS2482_STS_DIR_MASK) { bits << "DIR"; }
+
+    return "<" + bits.join(",") + ">";
+}
 
 int ds2482_select_register(int fd, uint8_t read_ptr)
 {
@@ -95,7 +110,7 @@ int w1_reset(int fd)
 {
     if (ds2482_wait_w1_idle(fd) != 0)
     {
-        fprintf(stderr, "Could not reset W1 bus\n");
+        fprintf(stderr, "Could not wait for W1 bus idle\n");
         return -1;
     }
 
@@ -120,6 +135,113 @@ int w1_reset(int fd)
     }
 
     return 0;
+}
+
+int w1_write_bit(int fd, uint8_t bit)
+{
+    if (ds2482_wait_w1_idle(fd) != 0)
+    {
+        fprintf(stderr, "Could not wait for W1 bus idle\n");
+        return -1;
+    }
+
+    if (i2c_smbus_write_byte_data(fd, DS2482_CMD_W1_SINGLE_BIT, bit == 0 ? 0x7F : 0xFF) != 0)
+    {
+        fprintf(stderr, "Could not write W1 single bit\n");
+        return -1;
+    }
+
+    // wait for idle so following commands don't have to
+    if (ds2482_wait_w1_idle(fd) != 0)
+    {
+        fprintf(stderr, "Could not wait for W1 bus idle\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+int w1_read_bit(int fd)
+{
+    if (w1_write_bit(fd, 1) != 0)
+    {
+        fprintf(stderr, "Could not write bit to prepare for read\n");
+        return -1;
+    }
+
+    if (ds2482_select_register(fd, DS2482_REG_STS))
+    {
+        fprintf(stderr, "Could not switch to status register\n");
+        return -1;
+    }
+
+    int ret = i2c_smbus_read_byte(fd);
+    if (ret < 0)
+    {
+        fprintf(stderr, "Could not read status byte\n");
+        return -1;
+    }
+
+    if (ret & DS2482_STS_SBR_MASK)
+    {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int w1_write_byte(int fd, uint8_t byte)
+{
+    if (ds2482_wait_w1_idle(fd) != 0)
+    {
+        fprintf(stderr, "Could not wait for W1 bus idle\n");
+        return -1;
+    }
+
+    if (i2c_smbus_write_byte_data(fd, DS2482_CMD_W1_WRITE_BYTE, byte) != 0)
+    {
+        fprintf(stderr, "Could not write W1 byte\n");
+        return -1;
+    }
+
+    // wait for idle so following commands don't have to
+    if (ds2482_wait_w1_idle(fd) != 0)
+    {
+        fprintf(stderr, "Could not wait for W1 bus idle\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+int w1_read_byte(int fd)
+{
+    if (ds2482_wait_w1_idle(fd) != 0)
+    {
+        fprintf(stderr, "Could not wait for W1 bus idle\n");
+        return -1;
+    }
+
+    if (i2c_smbus_write_byte(fd, DS2482_CMD_W1_READ_BYTE) != 0)
+    {
+        fprintf(stderr, "Could not read W1 byte\n");
+        return -1;
+    }
+
+    if (ds2482_select_register(fd, DS2482_REG_DATA))
+    {
+        fprintf(stderr, "Could not switch to data register\n");
+        return -1;
+    }
+
+    int ret = i2c_smbus_read_byte(fd);
+    if (ret < 0)
+    {
+        fprintf(stderr, "Could not read data byte\n");
+        return -1;
+    }
+
+    return ret;
 }
 
 int main(int argc, char *argv[])
