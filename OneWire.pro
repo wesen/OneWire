@@ -17,4 +17,8 @@ TEMPLATE = app
 target.path = /data/bin
 INSTALLS += target
 
-SOURCES += main.cpp
+SOURCES += main.cpp \
+    ds2482.cpp
+
+HEADERS += \
+    ds2482.h
