@@ -42,6 +42,8 @@
 
 #define DS2482_IDLE_TIMEOUT 100
 
+#define W1_CMD_SEARCH 0xF0
+
 QString ds2482_sts_reg_to_string(int reg)
 {
     QStringList bits;
@@ -244,6 +246,154 @@ int w1_read_byte(int fd)
     return ret;
 }
 
+int w1_triplet(int fd, uint8_t *dir, uint8_t *first_bit, uint8_t *second_bit)
+{
+    if (i2c_smbus_write_byte_data(fd, DS2482_CMD_W1_TRIPLET, *dir ? 0xFF : 0) != 0)
+    {
+        fprintf(stderr, "Could not issue triplet command\n");
+        return -1;
+    }
+
+    int ret = i2c_smbus_read_byte(fd);
+    if (ret < 0)
+    {
+        fprintf(stderr, "Could not read triplet result\n");
+        return -1;
+    }
+
+    if (ret & DS2482_STS_SBR_MASK)
+    {
+        *first_bit = 1;
+    } else {
+        *first_bit = 0;
+    }
+
+    if (ret & DS2482_STS_TSB_MASK)
+    {
+        *second_bit = 1;
+    } else {
+        *second_bit = 0;
+    }
+
+    if (ret & DS2482_STS_DIR_MASK)
+    {
+        *dir = 1;
+    } else {
+        *dir = 0;
+    }
+
+    return 0;
+}
+
+uint8_t search_serial_number[8];
+uint8_t last_discrepancy = 0;
+
+struct w1_search_s {
+    void reset() {
+        last_device = 0;
+        start_search_from = -1;
+    }
+
+    w1_search_s() {
+        reset();
+    }
+
+    uint64_t last_device;
+    int start_search_from = -1;
+};
+
+// d7b2ad2d
+
+// d7b2af2d
+
+// d7be6b2d
+
+int w1_search(int fd, w1_search_s *s)
+{
+    if (w1_reset(fd) != 0)
+    {
+        fprintf(stderr, "Could not reset w1 bus\n");
+        s->reset();
+        return -1;
+    }
+
+    if (w1_write_byte(fd, W1_CMD_SEARCH) != 0)
+    {
+        fprintf(stderr, "Could not write search command\n");
+        s->reset();
+        return -1;
+    }
+
+    int cur_bit = 0;
+    uint8_t dir;
+    uint8_t first_bit, second_bit;
+
+    int last_zero = -1;
+
+    do
+    {
+        if (cur_bit < s->start_search_from)
+        {
+            dir = s->last_device & (1 << cur_bit) ? 1 : 0;
+            qDebug() << "choosing" << dir << "at bit" << cur_bit;
+        }
+        else if (cur_bit == s->start_search_from)
+        {
+            // we are at the point of the last branch where we chose 0, now we choose 1
+            dir = 1;
+        } else {
+            dir = 0;
+        }
+
+        int chosen_dir = 1;
+
+        if (w1_triplet(fd, &dir, &first_bit, &second_bit) != 0)
+        {
+            fprintf(stderr, "Could not triplet on bit %d\n", cur_bit);
+            return -1;
+        }
+//        if (cur_bit == s->start_search_from)
+//        {
+//            dir = 1;
+//        }
+
+        qDebug() << "cur_bit" << cur_bit << "sending triplet" << chosen_dir << "got dir" << dir << "bits" << first_bit << second_bit;
+
+        if (first_bit == 1 && second_bit == 1)
+        {
+            // no devices found
+            // reset search
+            s->reset();
+            return 0;
+        }
+
+        if (first_bit == 0 && second_bit == 0 && dir == 0)
+        {
+            // discrepancy found
+            last_zero = cur_bit;
+        }
+
+        if (dir == 1)
+        {
+            s->last_device |= (1 << cur_bit);
+        } else {
+            s->last_device &= ~(1 << cur_bit);
+        }
+
+        cur_bit++;
+    } while (cur_bit < 64);
+
+    if (cur_bit == 64)
+    {
+        // successful search
+        s->start_search_from = last_zero;
+
+        return 1;
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     QCoreApplication a(argc, argv);
@@ -265,6 +415,23 @@ int main(int argc, char *argv[])
     ds2482_reset(fd);
     w1_reset(fd);
 
+    w1_search_s s;
+
+    int ret = w1_search(fd, &s);
+    if (ret == 0)
+    {
+        qDebug() << "no devices found";
+    } else {
+        qDebug() << "device found" << QString("%1").arg(s.last_device, 0, 16);
+    }
+
+    ret = w1_search(fd, &s);
+    if (ret == 0)
+    {
+        qDebug() << "no devices found";
+    } else {
+        qDebug() << "device found" << QString("%1").arg(s.last_device, 0, 16);
+    }
     close(fd);
 
 
