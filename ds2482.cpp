@@ -114,7 +114,7 @@ int DS2482::w1_search_lowlevel(w1_search_s *s)
         return 0;
     }
 
-    if (w1_write_byte(W1_CMD_SEARCH) != 0)
+    if (w1_write_byte(W1_CMD_SEARCH_ROM) != 0)
     {
         fprintf(stderr, "Could not write search command\n");
         s->reset();
@@ -205,6 +205,8 @@ int DS2482::reset()
     }
     int ret = i2c_smbus_read_byte(fd);
 
+    config = 0;
+
     return ret;
 
 }
@@ -217,6 +219,10 @@ int DS2482::wait_w1_idle()
         int retries = 0;
         do {
             tmp = i2c_smbus_read_byte(fd);
+            if (tmp & DS2482_STS_SD_MASK)
+            {
+                qDebug() << "bus shorted";
+            }
         } while ((tmp >= 0) && (tmp & DS2482_STS_1WB_MASK)
                  && (++retries < DS2482_IDLE_TIMEOUT));
 
@@ -228,6 +234,64 @@ int DS2482::wait_w1_idle()
     }
 
     return 0;
+}
+
+int DS2482::set_config(uint8_t _config)
+{
+    _config &= 0x0F;
+    _config = (~_config << 4) | _config;
+
+    if (i2c_smbus_write_byte_data(fd, DS2482_CMD_WRITE_CONFIG, _config) != 0)
+    {
+        fprintf(stderr, "Could not write config byte\n");
+        return -1;
+    }
+
+    config = _config;
+
+    return 0;
+}
+
+int DS2482::set_active_pullup(bool activePullup)
+{
+    uint8_t _config = config;
+
+    if (activePullup)
+    {
+        _config |= DS2482_REG_APU_MASK;
+    } else {
+        _config &= ~DS2482_REG_APU_MASK;
+    }
+
+    return set_config(_config);
+}
+
+int DS2482::set_high_speed(bool highSpeed)
+{
+    uint8_t _config = config;
+
+    if (highSpeed)
+    {
+        _config |= DS2482_REG_1WS_MASK;
+    } else {
+        _config &= ~DS2482_REG_1WS_MASK;
+    }
+
+    return set_config(_config);
+}
+
+int DS2482::set_strong_pullup(bool strongPullup)
+{
+    uint8_t _config = config;
+
+    if (strongPullup)
+    {
+        _config |= DS2482_REG_SPU_MASK;
+    } else {
+        _config &= ~DS2482_REG_SPU_MASK;
+    }
+
+    return set_config(_config);
 }
 
 int DS2482::w1_reset()
@@ -341,6 +405,35 @@ int DS2482::w1_write_byte(uint8_t byte)
     return 0;
 }
 
+int DS2482::w1_rw_block(uint8_t *buf, int len)
+{
+    for (int i = 0; i < len; i++)
+    {
+        int ret = w1_write_byte(buf[1]);
+        if (ret < 0)
+        {
+            return ret;
+        }
+
+        if (select_register(DS2482_REG_DATA))
+        {
+            fprintf(stderr, "Could not switch to data register\n");
+            return -1;
+        }
+
+        ret = i2c_smbus_read_byte(fd);
+        if (ret < 0)
+        {
+            fprintf(stderr, "Could not read data byte\n");
+            return -1;
+        }
+
+        buf[i] = ret;
+    }
+
+    return len;
+}
+
 int DS2482::w1_read_byte()
 {
     if (wait_w1_idle() != 0)
@@ -369,7 +462,6 @@ int DS2482::w1_read_byte()
     }
 
     return ret;
-
 }
 
 int DS2482::w1_triplet(uint8_t *dir, uint8_t *first_bit, uint8_t *second_bit)
@@ -406,6 +498,12 @@ int DS2482::w1_triplet(uint8_t *dir, uint8_t *first_bit, uint8_t *second_bit)
         *dir = 1;
     } else {
         *dir = 0;
+    }
+
+
+    if (ret & DS2482_STS_SD_MASK)
+    {
+        qDebug() << "bus shorted";
     }
 
     return 0;

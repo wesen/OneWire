@@ -27,16 +27,48 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    ds.set_active_pullup(true);
+
+    QSet<uint64_t> prevDevices;
+
     for (;;)
     {
-        QList<uint64_t> devices = ds.findDevices();
-        foreach (uint64_t dev, devices)
+        static struct timespec sl = {
+            0,
+            100 * 1000 * 1000
+        };
+
+        qDebug() << "--";
+
+        ds.set_high_speed(false);
+        ds.w1_reset();
+
+//        nanosleep(&sl, NULL);
+//        qDebug() << "send overdrive";
+        if (ds.w1_write_byte(W1_CMD_OVERDRIVE_SKIP_ROM) != 0)
+        {
+            fprintf(stderr, "Could not skip overdrive\n");
+            return 1;
+        }
+
+        ds.set_high_speed(true);
+        ds.w1_reset();
+
+        QSet<uint64_t> devices = ds.findDevices().toSet();
+
+        QSet<uint64_t> newDevices = devices - prevDevices;
+        foreach (uint64_t dev, newDevices)
         {
             qDebug() << "found" << QString("%1").arg(dev, 0, 16);
         }
 
-        struct timespec sl = { .tv_sec = 0, .tv_nsec = 500 * 1000 };
+        QSet<uint64_t> removedDevices = prevDevices - devices;
+        foreach (uint64_t dev, removedDevices)
+        {
+            qDebug() << "removed" << QString("%1").arg(dev, 0, 16);
+        }
 
+        prevDevices = devices;
 
         nanosleep(&sl, NULL);
     }
