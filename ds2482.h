@@ -127,6 +127,7 @@ public:
     int w1_triplet(bit_t *dir, bit_t *first_bit, bit_t *second_bit);
 
     static bool w1_check_rom_crc(uint64_t dev);
+    static uint16_t w1_compute_data_crc(uint8_t *buf, int len);
 
 private:
     struct w1_search_s;
