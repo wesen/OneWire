@@ -72,6 +72,8 @@ public:
 
     int w1_triplet(uint8_t *dir, uint8_t *first_bit, uint8_t *second_bit);
 
+    static bool w1_check_rom_crc(uint64_t dev);
+
 private:
     struct w1_search_s;
 
