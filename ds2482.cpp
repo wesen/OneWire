@@ -162,9 +162,9 @@ int DS2482::w1_search_lowlevel(w1_search_s *s)
 
         if (dir == 1)
         {
-            s->last_device |= (1 << cur_bit);
+            s->last_device |= (1ULL << cur_bit);
         } else {
-            s->last_device &= ~(1 << cur_bit);
+            s->last_device &= ~(1ULL << cur_bit);
         }
 
         cur_bit++;
