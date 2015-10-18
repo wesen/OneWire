@@ -95,7 +95,7 @@ public:
     typedef uint8_t ds2482_config_t;
     typedef uint8_t bit_t;
 
-    int set_config(ds2482_config_t config);
+    int set_config(uint8_t config);
     int set_active_pullup(bool activePullup);
     int set_high_speed(bool highSpeed);
     int set_strong_pullup(bool strongPullup);
@@ -117,12 +117,18 @@ public:
      * \return 0 on success, -1 on failure
      */
     int w1_write_byte(uint8_t byte);
+    /*!
+     * \brief w1_read_byte
+     * \return the byte on success, -1 on failure
+     */
     int w1_read_byte();
 
     int w1_match_rom(uint64_t device);
-    int w1_overdrive_match_rom(uint64_t device);
-
+    int w1_read_rom(uint64_t *device);
+    int w1_skip_rom();
     int w1_resume();
+    int w1_overdrive_match_rom(uint64_t device);
+    int w1_overdrive_skip_rom();
 
     int w1_triplet(bit_t *dir, bit_t *first_bit, bit_t *second_bit);
 

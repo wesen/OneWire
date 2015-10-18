@@ -61,137 +61,9 @@ int DS2482::open(QString deviceFile, uint8_t address)
     return 0;
 }
 
-struct DS2482::w1_search_s {
-    void reset() {
-        last_device = 0;
-        start_search_from = -1;
-    }
-
-    w1_search_s() {
-        reset();
-    }
-
-    uint64_t last_device;
-    int start_search_from = -1;
-};
-
-QList<uint64_t> DS2482::findDevices()
-{
-    w1_search_s s;
-    QList<uint64_t> result;
-
-    int ret = 0;
-    for (;;) {
-        ret = w1_search_lowlevel(&s);
-
-        if (ret != 0)
-        {
-            result << s.last_device;
-        }
-
-        if (ret == 0 || ret == 2)
-        {
-            break;
-        }
-    }
-
-    return result;
-
-}
-
-int DS2482::w1_search_lowlevel(w1_search_s *s)
-{
-    int ret = w1_reset();
-    if (ret < 0)
-    {
-        fprintf(stderr, "Could not reset w1 bus\n");
-        s->reset();
-        return -1;
-    }
-    if (ret == 0)
-    {
-        // no presence pulse
-        return 0;
-    }
-
-    if (w1_write_byte(W1_CMD_SEARCH_ROM) != 0)
-    {
-        fprintf(stderr, "Could not write search command\n");
-        s->reset();
-        return -1;
-    }
-
-    int cur_bit = 0;
-    uint8_t dir;
-    uint8_t first_bit, second_bit;
-
-    int last_zero = -1;
-
-    do
-    {
-        if (cur_bit < s->start_search_from)
-        {
-            dir = s->last_device & (1 << cur_bit) ? 1 : 0;
-        }
-        else if (cur_bit == s->start_search_from)
-        {
-            // we are at the point of the last branch where we chose 0, now we choose 1
-            dir = 1;
-        } else {
-            dir = 0;
-        }
-
-        if (w1_triplet(&dir, &first_bit, &second_bit) != 0)
-        {
-            fprintf(stderr, "Could not triplet on bit %d\n", cur_bit);
-            return -1;
-        }
-        if (first_bit == 1 && second_bit == 1)
-        {
-            // no devices found
-            // reset search
-            s->reset();
-            return 0;
-        }
-
-        if (first_bit == 0 && second_bit == 0 && dir == 0)
-        {
-            // discrepancy found
-            last_zero = cur_bit;
-        }
-
-        if (dir == 1)
-        {
-            s->last_device |= (1ULL << cur_bit);
-        } else {
-            s->last_device &= ~(1ULL << cur_bit);
-        }
-
-        cur_bit++;
-    } while (cur_bit < 64);
-
-    if (cur_bit == 64)
-    {
-        if (w1_check_rom_crc(s->last_device))
-        {
-            // successful search
-            s->start_search_from = last_zero;
-            if (last_zero == -1)
-            {
-                return 2;
-            } else {
-                return 1;
-            }
-        } else {
-            fprintf(stderr, "Invalid crc\n");
-            s->reset();
-            return -1;
-        }
-    }
-
-    return 0;
-}
-
+//------------------------------------------------------------------------------
+// DS2482 control
+//------------------------------------------------------------------------------
 int DS2482::select_register(ds2482_reg_t read_ptr)
 {
     if (i2c_smbus_write_byte_data(fd, DS2482_CMD_SET_READ_PTR, read_ptr) < 0)
@@ -218,39 +90,15 @@ int DS2482::reset()
 
 }
 
-int DS2482::wait_w1_idle()
-{
-    if (select_register(DS2482_REG_STS) == 0)
-    {
-        int tmp = 0;
-        int retries = 0;
-        do {
-            tmp = i2c_smbus_read_byte(fd);
-            if (tmp & DS2482_STS_SD_MASK)
-            {
-                qDebug() << "bus shorted";
-            }
-        } while ((tmp >= 0) && (tmp & DS2482_STS_1WB_MASK)
-                 && (++retries < DS2482_IDLE_TIMEOUT));
-
-        if (retries == DS2482_IDLE_TIMEOUT)
-        {
-            fprintf(stderr, "Timeout while waiting for bus to be idle\n");
-            return -1;
-        }
-    }
-
-    return 0;
-}
-
 int DS2482::set_config(uint8_t _config)
 {
     _config &= 0x0F;
-    _config = (~_config << 4) | _config;
+    _config = ((~_config | 0x2) << 4) | _config;
 
-    if (i2c_smbus_write_byte_data(fd, DS2482_CMD_WRITE_CONFIG, _config) != 0)
+    int ret = i2c_smbus_write_byte_data(fd, DS2482_CMD_WRITE_CONFIG, _config);
+    if (ret != 0)
     {
-        fprintf(stderr, "Could not write config byte\n");
+        fprintf(stderr, "Could not write config byte: %x - %d\n", _config, ret);
         return -1;
     }
 
@@ -299,6 +147,34 @@ int DS2482::set_strong_pullup(bool strongPullup)
     }
 
     return set_config(_config);
+}
+
+//------------------------------------------------------------------------------
+// W1 primitives
+//------------------------------------------------------------------------------
+int DS2482::wait_w1_idle()
+{
+    if (select_register(DS2482_REG_STS) == 0)
+    {
+        int tmp = 0;
+        int retries = 0;
+        do {
+            tmp = i2c_smbus_read_byte(fd);
+            if (tmp & DS2482_STS_SD_MASK)
+            {
+                qDebug() << "bus shorted";
+            }
+        } while ((tmp >= 0) && (tmp & DS2482_STS_1WB_MASK)
+                 && (++retries < DS2482_IDLE_TIMEOUT));
+
+        if (retries == DS2482_IDLE_TIMEOUT)
+        {
+            fprintf(stderr, "Timeout while waiting for bus to be idle\n");
+            return -1;
+        }
+    }
+
+    return 0;
 }
 
 int DS2482::w1_reset()
@@ -521,6 +397,171 @@ int DS2482::w1_triplet(uint8_t *dir, uint8_t *first_bit, uint8_t *second_bit)
     return 0;
 }
 
+//------------------------------------------------------------------------------
+// W1 search protocol
+//------------------------------------------------------------------------------
+struct DS2482::w1_search_s {
+    void reset() {
+        last_device = 0;
+        start_search_from = -1;
+    }
+
+    w1_search_s() {
+        reset();
+    }
+
+    uint64_t last_device;
+    int start_search_from = -1;
+};
+
+QList<uint64_t> DS2482::findDevices()
+{
+    w1_search_s s;
+    QList<uint64_t> result;
+
+    int ret = 0;
+    for (;;) {
+        ret = w1_search_lowlevel(&s);
+
+        if (ret != 0)
+        {
+            result << s.last_device;
+        }
+
+        if (ret == 0 || ret == 2)
+        {
+            break;
+        }
+    }
+
+    return result;
+
+}
+
+int DS2482::w1_search_lowlevel(w1_search_s *s)
+{
+    int ret = w1_reset();
+    if (ret < 0)
+    {
+        fprintf(stderr, "Could not reset w1 bus\n");
+        s->reset();
+        return -1;
+    }
+    if (ret == 0)
+    {
+        // no presence pulse
+        return 0;
+    }
+
+    if (w1_write_byte(W1_CMD_SEARCH_ROM) != 0)
+    {
+        fprintf(stderr, "Could not write search command\n");
+        s->reset();
+        return -1;
+    }
+
+    int cur_bit = 0;
+    uint8_t dir;
+    uint8_t first_bit, second_bit;
+
+    int last_zero = -1;
+
+    do
+    {
+        if (cur_bit < s->start_search_from)
+        {
+            dir = s->last_device & (1 << cur_bit) ? 1 : 0;
+        }
+        else if (cur_bit == s->start_search_from)
+        {
+            // we are at the point of the last branch where we chose 0, now we choose 1
+            dir = 1;
+        } else {
+            dir = 0;
+        }
+
+        if (w1_triplet(&dir, &first_bit, &second_bit) != 0)
+        {
+            fprintf(stderr, "Could not triplet on bit %d\n", cur_bit);
+            return -1;
+        }
+        if (first_bit == 1 && second_bit == 1)
+        {
+            // no devices found
+            // reset searc,
+            s->reset();
+            return 0;
+        }
+
+        if (first_bit == 0 && second_bit == 0 && dir == 0)
+        {
+            // discrepancy found
+            last_zero = cur_bit;
+        }
+
+        if (dir == 1)
+        {
+            s->last_device |= (1ULL << cur_bit);
+        } else {
+            s->last_device &= ~(1ULL << cur_bit);
+        }
+
+        cur_bit++;
+    } while (cur_bit < 64);
+
+    if (cur_bit == 64)
+    {
+        if (w1_check_rom_crc(s->last_device))
+        {
+            // successful searc,
+            s->start_search_from = last_zero;
+            if (last_zero == -1)
+            {
+                return 2;
+            } else {
+                return 1;
+            }
+        } else {
+            fprintf(stderr, "Invalid crc\n");
+            s->reset();
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+//------------------------------------------------------------------------------
+// W1 ROM commands
+//------------------------------------------------------------------------------
+int DS2482::w1_read_rom(uint64_t *device)
+{
+    if (w1_write_byte(W1_CMD_READ_ROM) != 0)
+    {
+        return -1;
+    }
+
+    uint8_t buf[8] = { 0 };
+    if (w1_read_block(buf, 8) < 0)
+    {
+        return -1;
+    }
+
+    *device = 0;
+    for (int i = 0; i < 8; i++)
+    {
+        *device |= buf[i];
+        *device = (*device << 8);
+    }
+
+    if (w1_check_rom_crc(*device))
+    {
+        return 0;
+    }
+
+    return -2;
+}
+
 int DS2482::w1_match_rom(uint64_t device)
 {
     if (w1_reset() < 0)
@@ -546,6 +587,22 @@ int DS2482::w1_match_rom(uint64_t device)
     return 0;
 }
 
+int DS2482::w1_skip_rom()
+{
+    if (w1_reset() < 0)
+    {
+        fprintf(stderr, "Could not reset the w1 bus\n");
+        return -1;
+    }
+
+    if (w1_write_byte(W1_CMD_SKIP_ROM) != 0)
+    {
+        return -1;
+    }
+
+    return 0;
+}
+
 int DS2482::w1_resume()
 {
     if (w1_reset() < 0)
@@ -558,6 +615,24 @@ int DS2482::w1_resume()
     {
         return -1;
     }
+
+    return 0;
+}
+
+int DS2482::w1_overdrive_skip_rom()
+{
+    if (w1_reset() < 0)
+    {
+        fprintf(stderr, "Could not reset the w1 bus\n");
+        return -1;
+    }
+
+    if (w1_write_byte(W1_CMD_OVERDRIVE_SKIP_ROM) != 0)
+    {
+        return -1;
+    }
+
+    set_high_speed(true);
 
     return 0;
 }
@@ -588,6 +663,9 @@ int DS2482::w1_overdrive_match_rom(uint64_t device)
     return w1_write_block(data, 8);
 }
 
+//------------------------------------------------------------------------------
+// W1 CRC
+//------------------------------------------------------------------------------
 bool DS2482::w1_check_rom_crc(uint64_t dev)
 {
     static uint8_t crcLookup[256] = {
