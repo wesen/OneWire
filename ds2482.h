@@ -41,7 +41,7 @@ public:
         DS2482_CMD_RESET          = 0xF0,
         DS2482_CMD_SET_READ_PTR   = 0xE1,
         DS2482_CMD_CHANNEL_SELECT = 0xC3,
-        DS2482_CMD_WRITE_CONFIG   = 0xD1,
+        DS2482_CMD_WRITE_CONFIG   = 0xD2,
         DS2482_CMD_W1_RESET       = 0xB4,
         DS2482_CMD_W1_SINGLE_BIT  = 0x87,
         DS2482_CMD_W1_WRITE_BYTE  = 0xA5,
