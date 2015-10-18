@@ -410,27 +410,14 @@ int DS2482::w1_write_byte(uint8_t byte)
     return 0;
 }
 
-int DS2482::w1_rw_block(uint8_t *buf, int len)
+int DS2482::w1_read_block(uint8_t *buf, int len)
 {
     for (int i = 0; i < len; i++)
     {
-        int ret = w1_write_byte(buf[i]);
+        int ret = w1_read_byte();
         if (ret < 0)
         {
             return ret;
-        }
-
-        if (select_register(DS2482_REG_DATA))
-        {
-            fprintf(stderr, "Could not switch to data register\n");
-            return -1;
-        }
-
-        ret = i2c_smbus_read_byte(fd);
-        if (ret < 0)
-        {
-            fprintf(stderr, "Could not read data byte\n");
-            return -1;
         }
 
         buf[i] = ret;
@@ -439,29 +426,15 @@ int DS2482::w1_rw_block(uint8_t *buf, int len)
     return len;
 }
 
-// max 16 bytes XXX
 int DS2482::w1_write_block(uint8_t *buf, int len)
 {
-    if (wait_w1_idle() != 0)
-    {
-        fprintf(stderr, "Could not wait for W1 bus idle\n");
-        return -1;
-    }
-
     for (int i = 0; i < len; i++)
     {
-        if (i2c_smbus_write_byte_data(fd, DS2482_CMD_W1_WRITE_BYTE, buf[i]) != 0)
+        int ret = w1_write_byte(buf[i]);
+        if (ret < 0)
         {
-            fprintf(stderr, "Could not write W1 byte\n");
-            return -1;
+            return ret;
         }
-
-        if (wait_w1_idle() != 0)
-        {
-            fprintf(stderr, "Could not wait for W1 bus idle\n");
-            return -1;
-        }
-
     }
 
     return 0;
@@ -478,6 +451,12 @@ int DS2482::w1_read_byte()
     if (i2c_smbus_write_byte(fd, DS2482_CMD_W1_READ_BYTE) != 0)
     {
         fprintf(stderr, "Could not read W1 byte\n");
+        return -1;
+    }
+
+    if (wait_w1_idle() != 0)
+    {
+        fprintf(stderr, "Could not wait for W1 bus idle\n");
         return -1;
     }
 
@@ -567,6 +546,22 @@ int DS2482::w1_match_rom(uint64_t device)
     return 0;
 }
 
+int DS2482::w1_resume()
+{
+    if (w1_reset() < 0)
+    {
+        fprintf(stderr, "Could not reset the w1 bus\n");
+        return -1;
+    }
+
+    if (w1_write_byte(W1_CMD_RESUME) != 0)
+    {
+        return -1;
+    }
+
+    return 0;
+}
+
 int DS2482::w1_overdrive_match_rom(uint64_t device)
 {
     if (w1_reset() < 0)
@@ -590,7 +585,7 @@ int DS2482::w1_overdrive_match_rom(uint64_t device)
         device >>= 8;
     }
 
-    return w1_rw_block(data, 8);
+    return w1_write_block(data, 8);
 }
 
 bool DS2482::w1_check_rom_crc(uint64_t dev)

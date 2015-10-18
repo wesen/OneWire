@@ -108,7 +108,7 @@ public:
     int w1_read_bit();
     int w1_write_bit(bit_t bit);
 
-    int w1_rw_block(uint8_t *buf, int len);
+    int w1_read_block(uint8_t *buf, int len);
     int w1_write_block(uint8_t *buf, int len);
 
     /*!
