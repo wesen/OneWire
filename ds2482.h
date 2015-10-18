@@ -77,12 +77,19 @@ public:
      * \brief close the opened i2c device (if open)
      */
     void close();
+
+    //------------------------------------------------------------------------------
+    // W1 search protocol
+    //------------------------------------------------------------------------------
     /*!
      * \brief findDevices - scans the 1-wire bus and returns found device ids
      * \return list of found device ids
      */
     QList<uint64_t> findDevices();
 
+    //------------------------------------------------------------------------------
+    // DS2482 control
+    //------------------------------------------------------------------------------
     /*!
      * \brief select_register - sets the DS2482 read pointer
      * \param read_ptr
@@ -100,6 +107,9 @@ public:
     int set_high_speed(bool highSpeed);
     int set_strong_pullup(bool strongPullup);
 
+    //------------------------------------------------------------------------------
+    // W1 primitives
+    //------------------------------------------------------------------------------
     /*!
      * \brief w1_reset
      * \return 1 if presence pulse was detected, 0 when no presence pulse was detected, -1 on error
@@ -123,14 +133,17 @@ public:
      */
     int w1_read_byte();
 
+    int w1_triplet(bit_t *dir, bit_t *first_bit, bit_t *second_bit);
+
+    //------------------------------------------------------------------------------
+    // W1 ROM commands
+    //------------------------------------------------------------------------------
     int w1_match_rom(uint64_t device);
     int w1_read_rom(uint64_t *device);
     int w1_skip_rom();
     int w1_resume();
     int w1_overdrive_match_rom(uint64_t device);
     int w1_overdrive_skip_rom();
-
-    int w1_triplet(bit_t *dir, bit_t *first_bit, bit_t *second_bit);
 
     static bool w1_check_rom_crc(uint64_t dev);
     static uint16_t w1_compute_data_crc(uint8_t *buf, int len);
